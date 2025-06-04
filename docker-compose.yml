@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     container_name: imgproxy_cache
     volumes:
-      - ./config/nginx.conf:/etc/nginx/nginx.simplyfied.conf:delegated
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:delegated
       - ./data/cache:/var/cache/nginx:delegated
       - ./data/logs:/var/log/nginx:delegated
     ports:
