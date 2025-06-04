@@ -10,7 +10,7 @@ Add-Type -AssemblyName System.Net.Http
 # Fetch image URLs from remote JSON
 try {
     $json = Invoke-WebRequest -Uri $JsonUrl -UseBasicParsing -TimeoutSec 10 | Select-Object -ExpandProperty Content
-    $urls = ($json | ConvertFrom-Json).images
+    $urls = ($json | ConvertFrom-Json)
 } catch {
     Write-Error "Failed to fetch or parse remote JSON from $JsonUrl"
     exit 1
