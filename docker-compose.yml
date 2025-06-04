@@ -1,8 +1,68 @@
+################################################################################
+# WKO Inhouse CDN Server
+# A custom CDN made with imgproxy and nginx
+#
+# Author: Florian Bauer <florian.bauer@inhouse.wko.at>
+################################################################################
+
+networks:
+  ################################################################################
+  default:
+    driver: bridge
+
 services:
+  ################################################################################
   nginx:
     image: nginx:latest
-    ports:
-      - "8081:8080"
+    restart: unless-stopped
+    container_name: imgproxy_cache
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    restart: always
+      - ./config/nginx.conf:/etc/nginx/nginx.simplyfied.conf:delegated
+      - ./data/cache:/var/cache/nginx:delegated
+      - ./data/logs:/var/log/nginx:delegated
+    ports:
+      - 8081:8080
+    links:
+      - imgproxy:imgproxy
+    environment:
+      NGINX_ENTRYPOINT_QUIET_LOGS: 1
+
+  ################################################################################
+  imgproxy:
+    image: darthsim/imgproxy:${IMGPROXY_TAG:-latest}
+    restart: unless-stopped
+    container_name: imageproxy
+    healthcheck:
+      test: ["CMD", "imgproxy", "health"]
+      timeout: "10s"
+      interval: "10s"
+      retries: 3
+    environment:
+      ### Server
+      ### See: https://docs.imgproxy.net/configuration/options#server
+      IMGPROXY_NETWORK: "tcp"
+      IMGPROXY_BIND: ":8080"
+
+      ### Client
+      IMGPROXY_READ_REQUEST_TIMEOUT: 20
+      IMGPROXY_TIMEOUT: 20
+      IMGPROXY_KEEP_ALIVE_TIMEOUT: 20
+      IMGPROXY_CLIENT_KEEP_ALIVE_TIMEOUT: 90
+      IMGPROXY_USE_ETAG: false
+      IMGPROXY_USE_LAST_MODIFIED: false
+
+      ### Security
+      ### See: https://docs.imgproxy.net/configuration/options#security
+      IMGPROXY_ALLOW_SECURITY_OPTIONS: TRUE
+      IMGPROXY_ALLOWED_SOURCES: "https://www.wko.at"
+      IMGPROXY_MAX_SRC_FILE_SIZE: 10485760 # 10MB
+      IMGPROXY_MAX_SRC_RESOLUTION: 1070 # 1070px for the longest side
+      IMGPROXY_MAX_SVG_CHECK_BYTES: 32768 # 32KB
+
+      ### Cookies
+      ### See: https://docs.imgproxy.net/configuration/options#cookies
+      IMGPROXY_COOKIE_PASSTHROUGH: false
+
+      ### Fallback image
+      ### See: https://docs.imgproxy.net/configuration/options#fallback-image
+      IMGPROXY_FALLBACK_IMAGE_URL: "https://www.wko.at/ooe/settings/default-va-sonstiges-1.jpeg"
