@@ -41,7 +41,7 @@ services:
       ### Server
       ### See: https://docs.imgproxy.net/configuration/options#server
       IMGPROXY_NETWORK: "tcp"
-      IMGPROXY_BIND: ":8080"
+      IMGPROXY_BIND: ":80"
 
       ### Client
       IMGPROXY_READ_REQUEST_TIMEOUT: 20
