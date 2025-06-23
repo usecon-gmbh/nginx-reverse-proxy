@@ -12,7 +12,7 @@ set -e
 BASE_URL="${1:-http://localhost:8081}"  # Default to localhost:8081 (nginx proxy port)
 CONCURRENT_USERS="${2:-50}"  # Default concurrent users
 TEST_DURATION="${3:-2M}"     # Default test duration
-JSON_URL="https://wko-architektur-main-jdotwb.laravel.cloud/storage/image_test_page.json"
+JSON_FILE="data/image_test_urls.json"
 SIEGE_URLS_FILE="tmp/siege_urls.txt"
 RESULTS_DIR="reports"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -67,22 +67,20 @@ if ! command -v siege &> /dev/null; then
     exit 1
 fi
 
-# Fetch JSON data
-echo -e "${YELLOW}Fetching image URLs from: $JSON_URL${NC}"
-curl -sSL --fail "$JSON_URL" -o tmp/temp_images.json 2>tmp/curl_error.log
-
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: Failed to fetch JSON data${NC}"
-    echo "Curl error output:"
-    cat tmp/curl_error.log
-    rm -f tmp/curl_error.log
+# Use local JSON data
+echo -e "${YELLOW}Using local image URLs from: $JSON_FILE${NC}"
+if [ ! -f "$JSON_FILE" ]; then
+    echo -e "${RED}Error: JSON file not found: $JSON_FILE${NC}"
     exit 1
 fi
 
-if [ ! -s tmp/temp_images.json ]; then
+if [ ! -s "$JSON_FILE" ]; then
     echo -e "${RED}Error: JSON file is empty${NC}"
     exit 1
 fi
+
+# Copy to temp location for processing
+cp "$JSON_FILE" tmp/temp_images.json
 
 # Debug: Show first few lines of JSON
 echo "JSON content preview:"
@@ -218,7 +216,7 @@ if [ "$failed" != "0" ] && [ ! -z "$failed" ]; then
 fi
 
 # Cleanup
-rm -f tmp/temp_images.json tmp/.siegerc tmp/curl_error.log
+rm -f tmp/temp_images.json tmp/.siegerc
 
 echo ""
 echo "Full results saved to: $RESULT_FILE"
