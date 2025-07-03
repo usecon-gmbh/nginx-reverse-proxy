@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vorlesen Demo</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    select, button { font-size: 1rem; padding: 0.5rem; margin-right: 1rem; }
+    audio { display: block; margin-top: 1rem; width: 100%; max-width: 600px; }
+  </style>
+</head>
+<body>
+  <h2>Text vorlesen lassen</h2>
+
+  <select id="urlSelect">
+    <option value="https://www.wko.at/einstellen/personal">WKO: Personal einstellen</option>
+    <option value="https://www.wko.at/oe/news/danninger-klimaziel-2040-braucht-wirtschaftliche-realitaet">WKO: Klimaziel 2040</option>
+    <option value="https://www.wko.at/oe/news/besuchermarke-expo-geknackt">WKO: Besuchermarke Expo</option>
+  </select>
+
+  <button id="speakButton">🔊 Vorlesen</button>
+
+  <audio id="audioPlayer" controls>
+    Your browser does not support the audio element.
+  </audio>
+
+  <script>
+    document.getElementById("speakButton").addEventListener("click", function () {
+      const selectedUrl = document.getElementById("urlSelect").value;
+      const audioElement = document.getElementById("audioPlayer");
+      const ttsUrl = `http://localhost:8080/speak_url?url=${encodeURIComponent(selectedUrl)}`;
+
+      const mainContainer = document.querySelector("main");
+      const hash = btoa(selectedUrl);
+      audioElement.src = ttsUrl + `&cache_key=${hash}`;
+
+      audioElement.load();
+      audioElement.play();
+    });
+  </script>
+
+
+  <main>Der Inhalt des WKO.at</main>
+</body>
+</html>
