@@ -24,6 +24,7 @@ services:
       - 8081:8080
     links:
       - imgproxy:imgproxy
+      - audio_nginx:audio_nginx
 
   audio_nginx:
     image: nginx:latest
@@ -35,8 +36,6 @@ services:
       - ./data/logs_audio:/var/log/nginx:delegated
     ports:
       - 8082:8080
-    links:
-      - nginx:nginx
 
   ################################################################################
   imgproxy:
