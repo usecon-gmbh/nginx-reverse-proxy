@@ -7,25 +7,23 @@ data:
   nginx.conf: |
     worker_processes auto;
     worker_rlimit_nofile 65535;
-    error_log /var/log/nginx/error.log warn;
     pid /var/run/nginx.pid;
- 
     events {
         worker_connections 10240;
         use epoll;
         multi_accept on;
     }
- 
     http {
         include /etc/nginx/mime.types;
         default_type text/plain;
- 
+
         log_format compact '$remote_addr - $remote_user [$time_local] "$request" '
-                           '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
-                           'rt=$request_time uht="$upstream_header_time" urt="$upstream_response_time" '
-                           'cs=$upstream_cache_status';
-        access_log /var/log/nginx/access.log compact buffer=16k flush=5s;
- 
+                          '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                          'rt=$request_time uht="$upstream_header_time" urt="$upstream_response_time" '
+                          'cs=$upstream_cache_status';
+        access_log /dev/stdout compact buffer=16k flush=5s;
+        error_log  /dev/stderr  warn;
+
         sendfile on;
         tcp_nopush on;
         tcp_nodelay on;
@@ -33,32 +31,26 @@ data:
         keepalive_requests 1000;
         reset_timedout_connection on;
         server_tokens off;
- 
         proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=app_cache:200m max_size=50g
-                         inactive=10d use_temp_path=off;
- 
+                        inactive=10d use_temp_path=off;
         server {
             listen 8080 default_server;
             server_name _;
- 
             # Health & root
             location = /health { access_log off; add_header Content-Type text/plain; return 200 "OK\n"; }
             location = /       { add_header Content-Type text/plain; return 200 "WKO Inhouse CDN is alive!\n"; }
             location = /favicon.ico { access_log off; log_not_found off; return 204; }
             location = /robots.txt  { access_log off; add_header Content-Type text/plain; return 200 "User-agent: *\nDisallow: /\n"; }
- 
             # ---- IMAGES ----
             location ~ ^/image/.*/plain/(.+)$ {
                 limit_except GET HEAD OPTIONS { deny all; }
                 default_type application/octet-stream;
- 
                 # CORS + cache
                 add_header Access-Control-Allow-Origin * always;
                 add_header Access-Control-Allow-Methods "GET, HEAD" always;
                 expires 30d;
                 add_header Cache-Control "public, max-age=2592000, immutable" always;
                 add_header Vary "Accept-Encoding" always;
- 
                 # Inline upstream (imageproxy backend)
                 proxy_pass http://imgproxy:80;
                 proxy_http_version 1.1;
@@ -67,23 +59,19 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto https;
- 
                 # Cache
                 proxy_cache app_cache;
                 proxy_cache_valid 200 206 301 302 30d;
                 proxy_cache_valid 404 1h;
                 proxy_cache_valid any 1m;
                 add_header X-Cache-Status $upstream_cache_status always;
- 
                 proxy_connect_timeout 15s;
                 proxy_send_timeout 15s;
                 proxy_read_timeout 30s;
- 
                 proxy_intercept_errors on;
                 error_page 404 = @404;
                 error_page 500 502 503 504 = @50x;
             }
- 
             # ---- FONTS ----
             location /fonts/ {
                 alias /var/www/fonts/;
@@ -100,12 +88,10 @@ data:
                 expires 180d;
                 add_header Cache-Control "public, max-age=15552000, immutable" always;
             }
- 
-            location = /audio {
+            location = /audio { 
                 error_page 404 = @404;
                 return 404;
             }
- 
             # ---- AUDIO JSON ----
             location /audio/ {
                 # --- CORS preflight ---
@@ -118,45 +104,51 @@ data:
                     add_header Content-Type text/plain;
                     return 204;
                 }
- 
                 default_type application/json;
- 
-                # --- CORS for actual requests ---
+                # --- CORS actual ---
                 add_header Access-Control-Allow-Origin * always;
                 add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
                 add_header Access-Control-Expose-Headers "Content-Length,Content-Type,ETag" always;
- 
                 proxy_pass http://vorlese.wko.euw.wkonline.wknet/;
- 
                 proxy_http_version 1.1;
                 proxy_set_header Connection "";
-                proxy_set_header Host $host;      
+                proxy_set_header Host $proxy_host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header Accept "application/json";
- 
                 client_max_body_size 25m;
-                proxy_request_buffering on;
- 
-                proxy_cache app_cache;
-                proxy_cache_valid 200 206 301 302 30d;
-                proxy_cache_valid 404 1h;
-                proxy_cache_valid any 1m;
+                proxy_request_buffering on;                        # <-- keep ON so POST bodies are buffered
+                # ---- CACHING (now includes POST) ----
+                proxy_cache            app_cache;
+                proxy_cache_methods    GET HEAD POST;              # <-- enable POST caching
+                # Cache key uses method + path + client-provided body hash (?h=sha256(body))
+                proxy_cache_key        "$scheme://$proxy_host$uri|$request_method|v=$arg_v";
+                proxy_cache_valid      200 206 30d;
+                proxy_cache_valid      404 1h;
+                proxy_cache_valid      any  1m;
                 add_header X-Cache-Status $upstream_cache_status always;
- 
-                proxy_connect_timeout       900;
-                proxy_send_timeout          900;
-                proxy_read_timeout          900;
-                send_timeout                900;
- 
+                # Lock to avoid stampedes on same key
+                proxy_cache_lock       on;
+                proxy_cache_lock_age   10s;
+                proxy_cache_lock_timeout 30s;
+                # Buffering must be ON for caching (don’t stream)
+                proxy_buffering        on;
+                proxy_buffers          64 256k;
+                proxy_buffer_size      256k;
+                proxy_busy_buffers_size 512k;
+                proxy_max_temp_file_size 512m;
+                # (optional) keep temp writes efficient:
+                # proxy_temp_file_write_size 512k;
+                # Timeouts
+                proxy_connect_timeout  30s;
+                proxy_send_timeout     900s;
+                proxy_read_timeout     900s;
+                send_timeout           900s;
                 proxy_intercept_errors on;
                 error_page 404 = @404;
                 error_page 500 502 503 504 = @50x;
             }
- 
             error_page 404 = @404;
             error_page 500 502 503 504 = @50x;
- 
             # Common error handlers
             location @404 {
                 internal;
@@ -167,7 +159,6 @@ data:
                 add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
                 return 404 '<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Not Found</title><style>html,body{height:100%;margin:0}body{display:grid;place-items:center;}main{max-width:42rem;text-align:center;}</style><main><h1>404 — Not found</h1><p>We couldn’t find <code>$request_uri</code> on <code>$host</code>.</p><p>Request ID: <code>$request_id</code></p></main></html>';
             }
- 
             location @50x {
                 internal;
                 default_type text/html;
