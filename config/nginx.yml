@@ -94,55 +94,51 @@ data:
             }
             # ---- AUDIO JSON ----
             location /audio/ {
-                # --- CORS preflight ---
-                if ($request_method = OPTIONS) {
-                    add_header Access-Control-Allow-Origin * always;
-                    add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
-                    add_header Access-Control-Allow-Headers "$http_access_control_request_headers" always;
-                    add_header Access-Control-Max-Age 86400 always;
-                    add_header Content-Length 0;
-                    add_header Content-Type text/plain;
-                    return 204;
-                }
-                default_type application/json;
-                # --- CORS actual ---
+              # --- CORS actual + preflight ---
                 add_header Access-Control-Allow-Origin * always;
                 add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
-                add_header Access-Control-Expose-Headers "Content-Length,Content-Type,ETag" always;
+                add_header Access-Control-Allow-Headers "Content-Type, Range, Accept" always;   # NEW
+                add_header Access-Control-Expose-Headers "Content-Length, Content-Type, ETag" always;
+                # Fast path for preflight
+                if ($request_method = OPTIONS) {
+                    return 204;
+                }
+                # --- Upstream/proxy basics ---
                 proxy_pass http://vorlese.wko.euw.wkonline.wknet/;
                 proxy_http_version 1.1;
                 proxy_set_header Connection "";
                 proxy_set_header Host $proxy_host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                # --- Request/response sizing ---
                 client_max_body_size 25m;
-                proxy_request_buffering on;                        # <-- keep ON so POST bodies are buffered
-                # ---- CACHING (now includes POST) ----
-                proxy_cache            app_cache;
-                proxy_cache_methods    GET HEAD POST;              # <-- enable POST caching
-                # Cache key uses method + path + client-provided body hash (?h=sha256(body))
-                proxy_cache_key        "$scheme://$proxy_host$uri|$request_method|v=$arg_v";
-                proxy_cache_valid      200 206 30d;
-                proxy_cache_valid      404 1h;
-                proxy_cache_valid      any  1m;
+                proxy_request_buffering on;
+                # ---- CACHING (including POST) ----
+                proxy_cache         app_cache;
+                proxy_cache_methods GET HEAD POST;
+                proxy_cache_key     "$scheme://$proxy_host$uri|$request_method|v=$arg_v";
+                # TTLs (remove 206 unless you truly need Range on POST)
+                proxy_cache_valid   200 30d;
+                proxy_cache_valid   404 1h;
+                proxy_cache_valid   any 1m;
                 add_header X-Cache-Status $upstream_cache_status always;
                 # Lock to avoid stampedes on same key
-                proxy_cache_lock       on;
-                proxy_cache_lock_age   10s;
+                proxy_cache_lock on;
+                proxy_cache_lock_age 10s;
                 proxy_cache_lock_timeout 30s;
-                # Buffering must be ON for caching (don’t stream)
-                proxy_buffering        on;
-                proxy_buffers          64 256k;
-                proxy_buffer_size      256k;
+                
+                # Buffering ON for caching large files
+                proxy_buffering on;
+                proxy_buffers 64 256k;
+                proxy_buffer_size 256k;
                 proxy_busy_buffers_size 512k;
                 proxy_max_temp_file_size 512m;
-                # (optional) keep temp writes efficient:
-                # proxy_temp_file_write_size 512k;
                 # Timeouts
-                proxy_connect_timeout  30s;
-                proxy_send_timeout     900s;
-                proxy_read_timeout     900s;
-                send_timeout           900s;
+                proxy_connect_timeout 30s;
+                proxy_send_timeout 900s;
+                proxy_read_timeout 900s;
+                send_timeout 900s;
+                proxy_ignore_client_abort on;
                 proxy_intercept_errors on;
                 error_page 404 = @404;
                 error_page 500 502 503 504 = @50x;
@@ -153,18 +149,19 @@ data:
             location @404 {
                 internal;
                 default_type text/html;
-                add_header Cache-Control "no-store" always;
-                add_header X-Error "404" always;
                 add_header Access-Control-Allow-Origin * always;
                 add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
+                add_header Access-Control-Allow-Headers "Content-Type, Range, Accept" always;
+                add_header Access-Control-Expose-Headers "Content-Length, Content-Type, ETag" always;
                 return 404 '<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Not Found</title><style>html,body{height:100%;margin:0}body{display:grid;place-items:center;}main{max-width:42rem;text-align:center;}</style><main><h1>404 — Not found</h1><p>We couldn’t find <code>$request_uri</code> on <code>$host</code>.</p><p>Request ID: <code>$request_id</code></p></main></html>';
             }
             location @50x {
                 internal;
                 default_type text/html;
-                add_header Cache-Control "no-store" always;
-                add_header Retry-After 5 always;
-                add_header X-Error "5xx" always;
+                add_header Access-Control-Allow-Origin * always;
+                add_header Access-Control-Allow-Methods "GET, HEAD, POST, OPTIONS" always;
+                add_header Access-Control-Allow-Headers "Content-Type, Range, Accept" always;
+                add_header Access-Control-Expose-Headers "Content-Length, Content-Type, ETag" always;
                 return 503 '<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Service unavailable</title><style>html,body{height:100%;margin:0}body{display:grid;place-items:center;}main{max-width:42rem;text-align:center;}</style><main><h1>We&apos;ll be right back</h1><p>Upstream is currently unavailable. Please try again in a moment.</p><p>Request ID: <code>$request_id</code></p></main></html>';
             }
         }
